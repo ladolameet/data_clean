@@ -15,20 +15,21 @@ st.set_page_config(
 # =========================
 # HIDE STREAMLIT CLOUD UI
 # =========================
-st.markdown(
-    """
-    <style>
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
-    [data-testid="stToolbar"] {
+st.markdown("""
+<style>
+/* Hide main Streamlit UI */
+#MainMenu {visibility: hidden;}
+header {visibility: hidden;}
+footer {visibility: hidden;}
+
+/* Dim floating cloud overlay (cannot fully remove) */
+[data-testid="stToolbar"] {
     opacity: 0.05;
     pointer-events: none;
 }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+</style>
+""", unsafe_allow_html=True)
+
 
 # =========================
 # DATE STANDARDIZATION (STRING-BASED)
@@ -199,4 +200,5 @@ if uploaded_file:
         excel_buf.getvalue(),
         f"{base}_cleaned.xlsx"
     )
+
 
