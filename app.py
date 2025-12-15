@@ -21,6 +21,10 @@ st.markdown(
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     footer {visibility: hidden;}
+    [data-testid="stToolbar"] {
+    opacity: 0.05;
+    pointer-events: none;
+}
     </style>
     """,
     unsafe_allow_html=True
@@ -195,3 +199,4 @@ if uploaded_file:
         excel_buf.getvalue(),
         f"{base}_cleaned.xlsx"
     )
+
