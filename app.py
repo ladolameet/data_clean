@@ -5,11 +5,25 @@ from io import BytesIO
 import os
 
 # =========================
-# CONFIG
+# PAGE CONFIG (MUST BE FIRST)
 # =========================
 st.set_page_config(
     page_title="Automated Data Cleaning Agent",
     layout="wide"
+)
+
+# =========================
+# HIDE STREAMLIT CLOUD UI
+# =========================
+st.markdown(
+    """
+    <style>
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    </style>
+    """,
+    unsafe_allow_html=True
 )
 
 # =========================
@@ -28,7 +42,7 @@ def normalize_dates_as_string(series):
         try:
             dt = pd.to_datetime(v, errors="coerce")
             if pd.isna(dt):
-                return v  # keep original text if invalid
+                return v  # keep original text
             return dt.strftime("%d-%m-%y")
         except Exception:
             return v
@@ -80,7 +94,7 @@ def detect_outliers(df, intents):
 def clean_dataset_and_summary(df, intents):
     summary = []
 
-    # ---- DATE ----
+    # Date columns
     date_cols = [c for c in df.columns if intents[c] == "date"]
     if date_cols:
         for c in date_cols:
@@ -92,7 +106,7 @@ def clean_dataset_and_summary(df, intents):
             "Value Used": "DD-MM-YY, missing → 'Unknown'"
         })
 
-    # ---- NUMERIC ----
+    # Numeric columns
     numeric_cols = [c for c in df.columns if intents[c] == "numeric"]
     if numeric_cols:
         for c in numeric_cols:
@@ -105,7 +119,7 @@ def clean_dataset_and_summary(df, intents):
             "Value Used": "Median of each column"
         })
 
-    # ---- CATEGORICAL ----
+    # Categorical columns
     categorical_cols = [c for c in df.columns if intents[c] == "categorical"]
     if categorical_cols:
         for c in categorical_cols:
@@ -117,7 +131,7 @@ def clean_dataset_and_summary(df, intents):
             "Value Used": "'Unknown'"
         })
 
-    # ---- DUPLICATES ----
+    # Duplicate handling
     before = len(df)
     df = df.drop_duplicates()
     removed = before - len(df)
@@ -129,15 +143,17 @@ def clean_dataset_and_summary(df, intents):
         "Value Used": f"{removed} rows removed"
     })
 
-    summary_df = pd.DataFrame(summary)
-    return df, summary_df
+    return df, pd.DataFrame(summary)
 
 # =========================
-# STREAMLIT UI
+# UI
 # =========================
 st.title("🧹 Automated Data Cleaning Agent")
 
-uploaded_file = st.file_uploader("Upload CSV or Excel file", ["csv", "xlsx"])
+uploaded_file = st.file_uploader(
+    "Upload CSV or Excel file",
+    ["csv", "xlsx"]
+)
 
 if uploaded_file:
     df = (
@@ -159,7 +175,7 @@ if uploaded_file:
     st.subheader("Cleaned Data")
     st.dataframe(cleaned_df)
 
-    st.subheader("Cleaning Summary (What & Which Values Used)")
+    st.subheader("Cleaning Summary (Clear & Interpretable)")
     st.dataframe(summary_df)
 
     base = os.path.splitext(uploaded_file.name)[0]
