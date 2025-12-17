@@ -118,8 +118,10 @@ def validator_agent(df):
 def load_data(file):
     if file.name.endswith(".csv"):
         return pd.read_csv(file)
+
     elif file.name.endswith(".xlsx"):
         return pd.read_excel(file)
+
     elif file.name.endswith(".db"):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
             tmp.write(file.getbuffer())
@@ -176,34 +178,17 @@ if uploaded_file:
         # =====================================================
         # TRANSFORMATION RECOMMENDATIONS
         # =====================================================
-        st.subheader("📌 Recommended Next Transformations (GenAI Suggestions)")
+        st.subheader("📌 Recommended Next Transformations")
         st.markdown("""
         - 📊 **Scaling**: Use StandardScaler for numeric features  
         - 🔤 **Encoding**: One-hot encode categorical variables  
         - 📉 **Log Transform**: Apply to highly skewed numeric columns  
-        - 🧹 **Drop ID Columns**: Flight numbers, registrations before ML  
+        - 🧹 **Drop ID Columns** before ML  
         """)
 
-        # =====================================================
-        # CHAT AGENT
-        # =====================================================
-        st.subheader("💬 Ask the Data Cleaning Agent")
-
-        if "chat" not in st.session_state:
-            st.session_state.chat = []
-
-        for msg in st.session_state.chat:
-            st.chat_message(msg["role"]).write(msg["content"])
-
-        user_q = st.chat_input("Ask why a method was chosen")
-
-        if user_q:
-            st.session_state.chat.append({"role": "user", "content": user_q})
-            reply = (
-                "I choose median for skewed numeric data, mean for near-normal distributions, "
-                "and mode for low-cardinality categorical columns to preserve data integrity."
-            )
-            st.session_state.chat.append({"role": "assistant", "content": reply})
+        st.subheader("📈 Data Quality Score")
+        st.progress(score / 100)
+        st.write(f"Score: **{score}/100**")
 
         st.subheader("✅ Cleaned Dataset")
         st.dataframe(cleaned_df.head(100))
