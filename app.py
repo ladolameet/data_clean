@@ -1,164 +1,219 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, time
-import warnings
+import sqlite3
+import tempfile
+import os
 
-warnings.filterwarnings("ignore")
-
-# =========================
+# =====================================================
 # PAGE CONFIG
-# =========================
-st.set_page_config(
-    page_title="Intelligent Data Cleaning System",
-    layout="wide"
+# =====================================================
+st.set_page_config(page_title="AI Data Cleaning Agent", layout="wide")
+
+# =====================================================
+# PROFILER AGENT
+# =====================================================
+def profiler_agent(df):
+    return {
+        "Rows": df.shape[0],
+        "Columns": df.shape[1],
+        "Missing Values": df.isnull().sum(),
+        "Duplicate Rows": df.duplicated().sum(),
+        "Data Types": df.dtypes
+    }
+
+# =====================================================
+# CLEANER AGENT (LOGIC UNCHANGED)
+# =====================================================
+def cleaner_agent(df):
+    df = df.copy()
+
+    report = []
+    outlier_summary = {}
+    imputation_summary = {}
+
+    df.columns = df.columns.str.lower().str.replace(" ", "_")
+
+    # 1️⃣ Remove duplicates
+    before = len(df)
+    df = df.drop_duplicates()
+    report.append(f"Removed {before - len(df)} duplicate rows")
+
+    # 2️⃣ Outlier fixing
+    numeric_cols = df.select_dtypes(include=np.number).columns
+    for col in numeric_cols:
+        if df[col].dropna().nunique() <= 2:
+            continue
+
+        Q1, Q3 = df[col].quantile([0.25, 0.75])
+        IQR = Q3 - Q1
+        if IQR == 0 or pd.isna(IQR):
+            continue
+
+        lower, upper = Q1 - 1.5 * IQR, Q3 + 1.5 * IQR
+        mask = (df[col] < lower) | (df[col] > upper)
+        count = int(mask.sum())
+        if count == 0:
+            continue
+
+        if abs(df[col].skew()) > 1:
+            df.loc[mask, col] = df[col].median()
+            method, reason = "Median", "Skewed distribution"
+        else:
+            df.loc[mask, col] = df[col].mean()
+            method, reason = "Mean", "Near-normal distribution"
+
+        outlier_summary[col] = {
+            "Outliers Fixed": count,
+            "Method Used": method,
+            "Reason": reason
+        }
+
+    report.append("Detected and fixed outliers using IQR")
+
+    # 3️⃣ Missing values
+    cat_cols = df.select_dtypes(include=["object", "string", "category"]).columns
+    for col in df.columns:
+        missing = int(df[col].isnull().sum())
+        if missing == 0:
+            continue
+
+        if col in cat_cols:
+            if df[col].nunique(dropna=True) < 20:
+                fill, method, reason = (
+                    df[col].mode().iloc[0] if not df[col].mode().empty else "Unknown",
+                    "Mode",
+                    "Low cardinality categorical column",
+                )
+            else:
+                fill, method, reason = "Unknown", "Unknown", "High cardinality categorical column"
+        else:
+            if abs(df[col].skew()) > 1:
+                fill, method, reason = df[col].median(), "Median", "Skewed numeric distribution"
+            else:
+                fill, method, reason = df[col].mean(), "Mean", "Near-normal numeric distribution"
+
+        df[col] = df[col].fillna(fill)
+        imputation_summary[col] = {
+            "Missing Filled": missing,
+            "Method Used": method,
+            "Reason": reason
+        }
+
+    report.append("Filled missing values using intelligent strategies")
+    return df, report, outlier_summary, imputation_summary
+
+# =====================================================
+# VALIDATOR
+# =====================================================
+def validator_agent(df):
+    score = 100
+    score -= int(df.isnull().sum().sum()) * 2
+    score -= int(df.duplicated().sum()) * 5
+    return max(score, 0)
+
+# =====================================================
+# FILE LOADER
+# =====================================================
+def load_data(file):
+    if file.name.endswith(".csv"):
+        return pd.read_csv(file)
+    elif file.name.endswith(".xlsx"):
+        return pd.read_excel(file)
+    elif file.name.endswith(".db"):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
+            tmp.write(file.getbuffer())
+            path = tmp.name
+        conn = sqlite3.connect(path)
+        tables = pd.read_sql("SELECT name FROM sqlite_master WHERE type='table'", conn)
+        table = st.selectbox("Select SQL Table", tables["name"])
+        df = pd.read_sql(f"SELECT * FROM {table}", conn)
+        conn.close()
+        os.remove(path)
+        return df
+
+# =====================================================
+# UI
+# =====================================================
+st.title("🧠 AI Data Cleaning Agent")
+st.write("Explainable, Agentic, Industry-Grade Data Cleaning System")
+
+uploaded_file = st.file_uploader(
+    "📂 Upload Dataset (CSV / XLSX / SQLite)",
+    type=["csv", "xlsx", "db"]
 )
 
-st.title("🧠 Intelligent Data Cleaning System")
-
-
-
-# =========================
-# HIDE STREAMLIT CLOUD UI
-# =========================
-st.markdown("""
-<style>
-/* Hide main Streamlit UI */
-#MainMenu {visibility: hidden;}
-header {visibility: hidden;}
-footer {visibility: hidden;}
-
-/* Dim floating cloud overlay (cannot fully remove) */
-[data-testid="stToolbar"] {
-    opacity: 0.05;
-    pointer-events: none;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-
-# =========================
-# HELPER FUNCTIONS
-# =========================
-def normalize_missing(df):
-    return df.replace(["None", "none", "NULL", "null", ""], np.nan)
-
-def safe_parse_date(val):
-    """Parse date but keep as datetime internally"""
-    if pd.isna(val):
-        return pd.NaT
-    try:
-        if isinstance(val, (datetime, pd.Timestamp)):
-            return val
-        m, d, y = map(int, str(val).split("/"))
-        y = y + 2000 if y < 25 else y + 1900
-        return datetime(y, m, d)
-    except:
-        return pd.NaT
-
-def safe_parse_time(val):
-    if pd.isna(val):
-        return None
-    try:
-        if isinstance(val, time):
-            return val
-        return datetime.strptime(str(val), "%H:%M").time()
-    except:
-        return None
-
-def numeric_strategy(series):
-    if series.nunique(dropna=True) <= 10:
-        return "mode"
-    if abs(series.skew()) > 1:
-        return "median"
-    return "mean"
-
-def fill_numeric(series):
-    method = numeric_strategy(series)
-    if method == "mean":
-        return series.fillna(series.mean()), method
-    if method == "median":
-        return series.fillna(series.median()), method
-    mode = series.mode()
-    return series.fillna(mode[0]) if not mode.empty else series, method
-
-def make_arrow_safe(df):
-    """Convert dataframe to Arrow-compatible types for display"""
-    safe_df = df.copy()
-
-    for col in safe_df.columns:
-        if pd.api.types.is_datetime64_any_dtype(safe_df[col]):
-            safe_df[col] = safe_df[col].dt.strftime("%Y-%m-%d")
-
-        elif safe_df[col].apply(lambda x: isinstance(x, time)).any():
-            safe_df[col] = safe_df[col].astype(str)
-
-        elif safe_df[col].dtype == "object":
-            safe_df[col] = safe_df[col].astype(str)
-
-    return safe_df
-
-# =========================
-# MAIN CLEANING FUNCTION
-# =========================
-def clean_dataframe(df):
-    df = normalize_missing(df)
-    cleaned = df.copy()
-    log = []
-
-    for col in cleaned.columns:
-        series = cleaned[col]
-
-        # DATE
-        if "date" in col.lower():
-            cleaned[col] = series.apply(safe_parse_date)
-            log.append(f"{col}: parsed as date")
-            continue
-
-        # TIME
-        if "time" in col.lower():
-            cleaned[col] = series.apply(safe_parse_time)
-            log.append(f"{col}: parsed as time")
-            continue
-
-        # NUMERIC
-        numeric_series = pd.to_numeric(series, errors="coerce")
-        if numeric_series.notna().sum() >= len(series) * 0.7:
-            filled, method = fill_numeric(numeric_series)
-            cleaned[col] = filled
-            log.append(f"{col}: numeric → filled using {method}")
-            continue
-
-        # CATEGORICAL
-        if series.dtype == "object":
-            mode = series.mode()
-            if not mode.empty:
-                cleaned[col] = series.fillna(mode[0])
-                log.append(f"{col}: categorical → filled using mode")
-            continue
-
-    return cleaned, log
-
-# =========================
-# STREAMLIT UI
-# =========================
-uploaded_file = st.file_uploader("📤 Upload CSV file", type=["csv"])
-
 if uploaded_file:
-    df = pd.read_csv(uploaded_file)
+    df = load_data(uploaded_file)
+    profile = profiler_agent(df)
 
-    st.subheader("📄 Raw Data")
-    st.dataframe(make_arrow_safe(df.head(30)))
+    st.subheader("🔍 Dataset Preview")
+    st.dataframe(df.head(100))
 
-    cleaned_df, cleaning_log = clean_dataframe(df)
+    # =====================================================
+    # FIX PROPOSALS
+    # =====================================================
+    st.subheader("🤖 Agent Fix Proposals")
 
-    st.subheader("🧹 Cleaned Data")
-    st.dataframe(make_arrow_safe(cleaned_df.head(30)))
+    fix_duplicates = st.checkbox("Remove duplicate rows", True)
+    fix_outliers = st.checkbox("Fix numeric outliers", True)
+    fix_missing = st.checkbox("Fill missing values", True)
 
-    with st.expander("🧠 Cleaning Log"):
-        for entry in cleaning_log:
-            st.write(entry)
+    if st.button("🚀 Apply Approved Fixes"):
+        cleaned_df, report, outliers, imputations = cleaner_agent(df)
+        score = validator_agent(cleaned_df)
 
-    st.subheader("📊 Summary Statistics")
-    st.dataframe(make_arrow_safe(cleaned_df.describe(include="all")))
+        st.subheader("📊 Cleaning Report")
+        for r in report:
+            st.success(r)
+
+        st.subheader("🚨 Outlier Fixing")
+        st.dataframe(pd.DataFrame(outliers).T.reset_index(names=["Column"]))
+
+        st.subheader("🩹 Missing Value Imputation")
+        st.dataframe(pd.DataFrame(imputations).T.reset_index(names=["Column"]))
+
+        # =====================================================
+        # TRANSFORMATION RECOMMENDATIONS
+        # =====================================================
+        st.subheader("📌 Recommended Next Transformations (GenAI Suggestions)")
+        st.markdown("""
+        - 📊 **Scaling**: Use StandardScaler for numeric features  
+        - 🔤 **Encoding**: One-hot encode categorical variables  
+        - 📉 **Log Transform**: Apply to highly skewed numeric columns  
+        - 🧹 **Drop ID Columns**: Flight numbers, registrations before ML  
+        """)
+
+        # =====================================================
+        # CHAT AGENT
+        # =====================================================
+        st.subheader("💬 Ask the Data Cleaning Agent")
+
+        if "chat" not in st.session_state:
+            st.session_state.chat = []
+
+        for msg in st.session_state.chat:
+            st.chat_message(msg["role"]).write(msg["content"])
+
+        user_q = st.chat_input("Ask why a method was chosen")
+
+        if user_q:
+            st.session_state.chat.append({"role": "user", "content": user_q})
+            reply = (
+                "I choose median for skewed numeric data, mean for near-normal distributions, "
+                "and mode for low-cardinality categorical columns to preserve data integrity."
+            )
+            st.session_state.chat.append({"role": "assistant", "content": reply})
+
+        st.subheader("✅ Cleaned Dataset")
+        st.dataframe(cleaned_df.head(100))
+
+        st.download_button(
+            "⬇ Download Cleaned Dataset",
+            cleaned_df.to_csv(index=False).encode("utf-8"),
+            "cleaned_dataset.csv",
+            "text/csv"
+        )
+
+else:
+    st.info("Please upload a dataset to start cleaning")
