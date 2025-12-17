@@ -11,6 +11,34 @@ import os
 st.set_page_config(page_title="AI Data Cleaning Agent", layout="wide")
 
 # =====================================================
+# HIDE STREAMLIT DEFAULT UI (HEADER / SHARE / MENU)
+# =====================================================
+st.markdown("""
+<style>
+/* Encourage full-width layout */
+.block-container {
+    padding-top: 1rem;
+}
+
+/* Hide Streamlit header (Share, GitHub, Menu) */
+header {
+    visibility: hidden;
+}
+
+/* Hide footer */
+footer {
+    visibility: hidden;
+}
+
+/* Hide toolbar (three dots in some versions) */
+[data-testid="stToolbar"] {
+    display: none;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# =====================================================
 # PROFILER AGENT
 # =====================================================
 def profiler_agent(df):
@@ -202,3 +230,4 @@ if uploaded_file:
 
 else:
     st.info("Please upload a dataset to start cleaning")
+
